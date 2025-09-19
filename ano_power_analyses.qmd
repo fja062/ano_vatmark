@@ -5,7 +5,7 @@ editor: visual
 echo: false
 ---
 
-## General overview
+
 
 ```{r setup, include=FALSE}
 options(tibble.width = Inf)
@@ -13,10 +13,6 @@ options(tibble.width = Inf)
 options(tibble.print_max = 50)
 knitr::opts_chunk$set(message=FALSE, warning=FALSE, error=FALSE)
 ```
-
-
-
-
 
 ```{r}
 # 
@@ -28,12 +24,10 @@ library(simr)
 library(kableExtra)
 ```
 
+Below are illustrated the power analysis results. Each table describes the number of plots required to detect a 1, 5 or 10% change in each of the response variables, with 60 or 80% power. Analyses have been conducted at the 1:5000 and 1:20 000 resolution, and for the 1 x 1 m quadrat analyses as well as the 250 m\^2 circle.
 
-
-Below are illustrated the power analysis results. Each table describes the number of plots required to detect a 1, 5 or 10% change in each of the response variables, with 60 or 80% power. Analyses have been conducted at the 1:5000 and 1:20 000 resolution, and for the 1 x 1 m quadrat analyses as well as the 250 m^2 circle.
 ```{r results='asis'}
 #| results: 'asis'
-source("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/power_analysis.R", local = TRUE)
+source("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/ano_vatmark/power_analysis.R", local = TRUE)
 
 ```
-
