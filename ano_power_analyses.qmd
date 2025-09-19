@@ -1,0 +1,39 @@
+---
+title: "ANO power analyses"
+format: html
+editor: visual
+echo: false
+---
+
+## General overview
+
+```{r setup, include=FALSE}
+options(tibble.width = Inf)
+# You might also want to set tibble.print_max = Inf to display all rows
+options(tibble.print_max = 50)
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, error=FALSE)
+```
+
+
+
+
+
+```{r}
+# 
+# load packages
+library(tidyverse)
+library(pwr)
+library(lme4)
+library(simr)
+library(kableExtra)
+```
+
+
+
+Below are illustrated the power analysis results. Each table describes the number of plots required to detect a 1, 5 or 10% change in each of the response variables, with 60 or 80% power. Analyses have been conducted at the 1:5000 and 1:20 000 resolution, and for the 1 x 1 m quadrat analyses as well as the 250 m^2 circle.
+```{r results='asis'}
+#| results: 'asis'
+source("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/power_analysis.R", local = TRUE)
+
+```
+
