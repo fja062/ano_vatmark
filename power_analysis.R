@@ -12,20 +12,22 @@ customGreen0 = "#DeF7E9"
 
 customGreen = "#71CA97"
 
+
+
 ### load and clean data
 
 # ANO 5000 - 20 000 dictionary
-ano_dictionary <- read_excel("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/ano_5000_20000_dictionary.xlsx")
+ano_dictionary <- read_excel("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/ano_5000_20000_dictionary.xlsx")
 
 # ellenberg-type values data
-cwm_ano <- read_rds("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/results_ANO.RDS")
+cwm_ano <- read_rds("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/results_ANO.RDS")
 
 cwm_ano_original <- cwm_ano$original|> 
   select(globalid, ano_flate_id:ano_punkt_id, CC1:richness) |> 
   select(-contains("2"))
 
 # species data
-species_ano <- read_csv2("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/ANO_sp.csv")
+species_ano <- read_csv2("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/ANO_sp.csv")
 
 # create species richness variable
 species_richness <- species_ano |> 
@@ -36,7 +38,7 @@ species_richness <- species_ano |>
 
 
 # geo data
-geo_ano <- read_csv2("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/ANO_geo.csv")
+geo_ano <- read_csv2("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/ANO_geo.csv")
 
 # check which plots in geo_ano don't have data in geo_ano_original
 geo_ano |> 
@@ -178,10 +180,9 @@ geo_ano_results <- geo_ano_analysis |>
   mutate(test_result = map2(f2, power, ~ safe_pwr(.x, .y)),
          n_plots = map_dbl(test_result, ~ if (is.null(.x)) NA_real_ else .x$u + .x$v + 1),
          n_plots = round(n_plots, digits = 0)) |> 
-  select(-test_result)
-
-
-
+  select(-test_result) |> 
+  # filter for response variables measured at the correct scales
+  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light1", "Moist1", "Nitrogen1", "pH1", "richness"))|(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning", "busker_dekning")))
 
 # Set-up for agglomerated vegetation types
 geo_ano_analysis_agglo <- geo_ano |> 
@@ -219,7 +220,9 @@ geo_ano_results_agglo <- geo_ano_analysis_agglo |>
   mutate(test_result = map2(f2, power, ~ safe_pwr(.x, .y)),
          n_plots = map_dbl(test_result, ~ if (is.null(.x)) NA_real_ else .x$u + .x$v + 1),
          n_plots = round(n_plots, digits = 0)) |> 
-  select(-test_result)
+  select(-test_result) |> 
+  # filter for response variables measured at the correct scales
+  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light1", "Moist1", "Nitrogen1", "pH1", "richness"))|(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning", "busker_dekning")))
 
 
 
@@ -322,7 +325,7 @@ plot_ano_tile <- function(geo_ano_results_figures){
   
   ggplot(geo_ano_results_figures, aes(y = kartleggingsenhet,
                                       x = response_variable_names,
-                                      fill = log(n_plots))) +
+                                      fill = n_plots)) +
     geom_tile() +
     scale_fill_viridis_c() +
     theme_minimal() +
