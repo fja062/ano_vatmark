@@ -38,10 +38,10 @@ species_richness <- species_ano |>
 
 
 # geo data
-geo_ano <- read_csv2("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/ANO_geo.csv")
+geo_ano_raw <- read_csv2("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/ANO_geo.csv")
 
 # check which plots in geo_ano don't have data in geo_ano_original
-geo_ano |> 
+geo_ano_raw |> 
   # join to ellenberg index data
   tidylog::anti_join(cwm_ano_original, by = join_by(globalid, ano_flate_id, ano_punkt_id)) |> 
   group_by(ano_flate_id) |> 
@@ -49,7 +49,7 @@ geo_ano |>
 
 
 # data preparation
-geo_ano <- geo_ano |> 
+geo_ano_raw <- geo_ano_raw |> 
   # join to ellenberg index data
   tidylog::left_join(cwm_ano_original, by = join_by(globalid, ano_flate_id, ano_punkt_id)) |> 
   # remove description from mapping name variables
@@ -83,11 +83,11 @@ geo_ano <- geo_ano |>
 #  filter(!is.na(karplanter_dekning))
 
 # how many sites have fewer than 18 points?  ---> 38 sites. This is normal.
-geo_ano |> group_by(ano_flate_id) |> 
+geo_ano_raw |> group_by(ano_flate_id) |> 
   summarise(n = n_distinct(ano_punkt_id)) |> 
   filter(n < 18)
 
-geo_ano <- geo_ano |> 
+geo_ano <- geo_ano_raw |> 
   pivot_longer(cols = c("kartleggingsenhet_1m2":"kartleggingsenhet_250m2_20000"), names_to = "scale", values_to = "kartleggingsenhet") |>
   mutate(resolution = if_else(grepl("20000", scale), 20000, 5000),
          analysis_type = if_else(grepl("1m2", scale), "1m2", "250m2")) |> 
@@ -229,116 +229,10 @@ geo_ano_results_agglo <- geo_ano_analysis_agglo |>
 
 
 
-# tables
-#geo_ano_results |> 
-#  filter(power == 0.8, delta_level == 10, resolution == 5000, analysis_type == "1m2") |> 
-#  select(kartleggingsenhet, resolution, analysis_type, response_variable_names, n_plots) |> 
-#  tidylog::left_join(geo_ano_general) |> 
-#  mutate(feasibility = ifelse(n_plots < n_points, "feasible", "not feasible"))
-
-
-
-# All vegetation types: Walk through each group and print a table
-geo_ano_results_groups <- geo_ano_results |> 
-  group_by(resolution, analysis_type, delta_level, power) |> 
-  group_split() 
-  
-geo_ano_results_labels <- geo_ano_results |> 
-  group_by(resolution, analysis_type, delta_level, power) |> 
-  group_keys() |> 
-  mutate(power = power*100)
-
-#dat <- geo_ano_results_groups[[1]] |> as_tibble()
-
-walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(dat, idx) {
-  keys <- geo_ano_results_labels[idx, ]
-  
-  cat("###", paste("1:", keys[1], "resolution, ", keys[2], "plot type, to detect a ", keys[3], "% change, with", keys[4], "% power."), "\n\n")
-  
-  summary_tbl <- dat |> 
-    select(kartleggingsenhet, response_variable_names, n_plots) |> 
-  pivot_wider(names_from = response_variable_names, values_from = n_plots) 
-    
-
-  print(summary_tbl  |> 
-    kableExtra::kbl() |> #caption = paste("Summary for group:", paste(keys, collapse = " - "))
-    kableExtra::kable_styling(full_width = FALSE) |> 
-      kableExtra::kable_paper("hover")
-    #kableExtra::column_spec(2, background = kableExtra::spec_color(2, option = "viridis")) |> 
-    #kableExtra::kable_material_dark(c("striped", "hover"))
-  )
-  cat("\n\n")
-})
-
-
-# Agglomerated vegetation types: Walk through each group and print a table
-geo_ano_results_groups_agglo <- geo_ano_results_agglo |> 
-  group_by(resolution, analysis_type, delta_level, power) |> 
-  group_split() 
-  
-geo_ano_results_labels_agglo <- geo_ano_results_agglo |> 
-  group_by(resolution, analysis_type, delta_level, power) |> 
-  group_keys() |> 
-  mutate(power = power*100)
-
-
-walk2(geo_ano_results_groups_agglo, seq_len(nrow(geo_ano_results_labels_agglo)), function(data, idx) {
-  keys <- geo_ano_results_labels[idx, ]
-  
-  cat("###", paste("1:", keys[1], "resolution, ", keys[2], "plot type, to detect a ", keys[3], "% change, with", keys[4], "% power."), "\n\n")
-  
-  summary_tbl <- data |> 
-    select(kartleggingsenhet_agglo, response_variable_names, n_plots) |> 
-  pivot_wider(names_from = response_variable_names, values_from = n_plots) 
-    
-  
-  print(summary_tbl  |> 
-    kableExtra::kbl(caption = paste("Summary for group:", paste(keys, collapse = " - "))) |> 
-    kableExtra::kable_styling(full_width = FALSE)
-  )
-  cat("\n\n")
-})
-
-
-
-
-
-
-
 ## figures
 geo_ano_results_figures <- geo_ano_results |> 
   select(kartleggingsenhet, resolution, analysis_type, response_variable_names, n_plots, power, delta_level) |> 
   tidylog::left_join(geo_ano_general) |> 
   mutate(feasibility = ifelse(n_plots < n_points, "feasible", "not feasible")) 
-
-
-# plotting function
-plot_ano_tile <- function(geo_ano_results_figures){
-  group_info <- geo_ano_results_figures |> 
-    select(resolution, analysis_type, power, delta_level) |> 
-    slice(1)
-  
-  group_label <- paste(
-    paste(names(group_info), as.character(group_info), sep = "="),
-    collapse = ", "
-  )
-  
-  ggplot(geo_ano_results_figures, aes(y = kartleggingsenhet,
-                                      x = response_variable_names,
-                                      fill = n_plots)) +
-    geom_tile() +
-    scale_fill_viridis_c() +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    labs(title = group_label)
-}
-
-geo_ano_results_figures |> 
-  group_by(resolution, analysis_type, power, delta_level) |> 
-  group_split() |> 
-  walk(~ {
-    if(nrow(.x) > 0) print(plot_ano_tile(.x))
-  })
-
 
 
