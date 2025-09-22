@@ -1,6 +1,6 @@
 ---
 title: "ANO power analyses"
-format: pdf
+format: html
 editor: visual
 echo: false
 ---
