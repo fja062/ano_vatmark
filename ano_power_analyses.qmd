@@ -1,6 +1,6 @@
 ---
 title: "ANO power analyses"
-format: html
+format: pdf
 editor: visual
 echo: false
 ---
@@ -24,10 +24,151 @@ library(simr)
 library(kableExtra)
 ```
 
-Below are illustrated the power analysis results. Each table describes the number of plots required to detect a 1, 5 or 10% change in each of the response variables, with 60 or 80% power. Analyses have been conducted at the 1:5000 and 1:20 000 resolution, and for the 1 x 1 m quadrat analyses as well as the 250 m\^2 circle.
-
 ```{r results='asis'}
 #| results: 'asis'
 source("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/ano_vatmark/power_analysis.R", local = TRUE)
+
+```
+
+## Data structure overview
+
+Of the 252 ANO flate sites, 38 have under the total 18 point IDs.
+
+```{r results='asis'}
+geo_ano_general |> 
+  arrange(resolution, analysis_type) |> 
+    kableExtra::kbl() |> #caption = paste("Summary for group:", paste(keys, collapse = " - "))
+    kableExtra::kable_styling(full_width = FALSE)
+
+```
+
+
+
+## Power analysis results
+Below are illustrated the power analysis results. Each table describes the number of plots required to detect a 1, 5 or 10% change in each of the response variables, with 60 or 80% power. Analyses have been conducted at the 1:5000 and 1:20 000 resolution, and for the 1 x 1 m quadrat analyses as well as the 250 m\^2 circle. Analyses were conducted using the function `pwr.f2.test()` from the `pwr` package.
+
+
+
+
+### Results for ungrouped 'kartleggingsenheter'
+```{r results='asis'}
+
+# tables
+#geo_ano_results |> 
+#  filter(power == 0.8, delta_level == 10, resolution == 5000, analysis_type == "1m2") |> 
+#  select(kartleggingsenhet, resolution, analysis_type, response_variable_names, n_plots) |> 
+#  tidylog::left_join(geo_ano_general) |> 
+#  mutate(feasibility = ifelse(n_plots < n_points, "feasible", "not feasible"))
+
+
+
+# All vegetation types: Walk through each group and print a table
+geo_ano_results_groups <- geo_ano_results |> 
+  group_by(resolution, analysis_type, delta_level, power) |> 
+  group_split() 
+  
+geo_ano_results_labels <- geo_ano_results |> 
+  group_by(resolution, analysis_type, delta_level, power) |> 
+  group_keys() |> 
+  mutate(power = power*100)
+
+#dat <- geo_ano_results_groups[[1]] |> as_tibble()
+
+walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(dat, idx) {
+  keys <- geo_ano_results_labels[idx, ]
+  
+  cat("####", paste("1:", keys[1], "resolution, ", keys[2], "plot type, to detect a ", keys[3], "% change, with", keys[4], "% power."), "\n\n")
+  
+  summary_tbl <- dat |> 
+    select(kartleggingsenhet, response_variable_names, n_plots) |> 
+  pivot_wider(names_from = response_variable_names, values_from = n_plots) 
+    
+
+  print(summary_tbl  |> 
+    kableExtra::kbl() |> #caption = paste("Summary for group:", paste(keys, collapse = " - "))
+    kableExtra::kable_styling(full_width = FALSE) |> 
+      kableExtra::kable_paper("hover")
+    #kableExtra::column_spec(2, background = kableExtra::spec_color(2, option = "viridis")) |> 
+    #kableExtra::kable_material_dark(c("striped", "hover"))
+  )
+  cat("\n\n")
+})
+
+```
+
+
+### Results for grouped 'kartleggingsenheter'
+Kartleggingsenheter are grouped into common and rare types.
+
+
+```{r results='asis'}
+
+# Agglomerated vegetation types: Walk through each group and print a table
+geo_ano_results_groups_agglo <- geo_ano_results_agglo |> 
+  group_by(resolution, analysis_type, delta_level, power) |> 
+  group_split() 
+  
+geo_ano_results_labels_agglo <- geo_ano_results_agglo |> 
+  group_by(resolution, analysis_type, delta_level, power) |> 
+  group_keys() |> 
+  mutate(power = power*100)
+
+
+walk2(geo_ano_results_groups_agglo, seq_len(nrow(geo_ano_results_labels_agglo)), function(data, idx) {
+  keys <- geo_ano_results_labels[idx, ]
+  
+  cat("####", paste("1:", keys[1], "resolution, ", keys[2], "plot type, to detect a ", keys[3], "% change, with", keys[4], "% power."), "\n\n")
+  
+  summary_tbl <- data |> 
+    select(kartleggingsenhet_agglo, response_variable_names, n_plots) |> 
+  pivot_wider(names_from = response_variable_names, values_from = n_plots) 
+    
+  
+  print(summary_tbl  |> 
+    kableExtra::kbl(caption = paste("Summary for group:", paste(keys, collapse = " - "))) |> 
+    kableExtra::kable_styling(full_width = FALSE)
+  )
+  cat("\n\n")
+})
+
+
+
+```
+
+
+
+### Figures
+Graphical representation of the number of plots necessary to detect a 1, 5, or 10% change in each of the response variables at a 1:5000 or 1:20 000 resolution at 60 or 80% power, for the 1m^2 quadrats or 250m^2 circles.
+```{r results='asis'}
+# figures
+
+
+# plotting function
+plot_ano_tile <- function(geo_ano_results_figures){
+  group_info <- geo_ano_results_figures |> 
+    select(resolution, analysis_type, power, delta_level) |> 
+    slice(1)
+  
+  group_label <- paste(
+    paste(names(group_info), as.character(group_info), sep = "="),
+    collapse = ", "
+  )
+  
+  ggplot(geo_ano_results_figures, aes(y = kartleggingsenhet,
+                                      x = response_variable_names,
+                                      fill = n_plots)) +
+    geom_tile() +
+    scale_fill_viridis_c() +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(title = group_label)
+}
+
+geo_ano_results_figures |> 
+  group_by(resolution, analysis_type, power, delta_level) |> 
+  group_split() |> 
+  walk(~ {
+    if(nrow(.x) > 0) print(plot_ano_tile(.x))
+  })
 
 ```
