@@ -9,7 +9,6 @@ library(formattable)
 
 # set colours
 customGreen0 = "#DeF7E9"
-
 customGreen = "#71CA97"
 
 
@@ -19,21 +18,40 @@ customGreen = "#71CA97"
 # ANO 5000 - 20 000 dictionary
 ano_dictionary <- read_excel("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/ano_5000_20000_dictionary.xlsx")
 
+
+
+# read in spatial files
+res.ANO <- results.ANO[['original']]
+
+# add geometry again
+st_geometry(res.ANO) <- st_geometry(ANO.all)
+
+# read Norway and region spatial data
+nor <- st_read(here::here("indicators/NO_FUNC_001-004/data/spatial/outlineOfNorway_EPSG25833.shp"), quiet = T) %>%
+  st_as_sf() %>%
+  st_transform(crs = crs(ANO.all))
+
+reg <- st_read(here::here("indicators/NO_FUNC_001-004/data/spatial/regions.shp"), quiet = T) %>%
+  st_as_sf() %>%
+  st_transform(crs = crs(ANO.all))
+
+# change region names to something R-friendly and merge region with Norway spatial data
+#reg$region
+reg$region <- c("Northern.Norway","Central.Norway","Eastern.Norway","Western.Norway","Southern.Norway")
+
+regnor <- st_intersection(reg,nor)
+
+# join region info to res.ANO
+res.ANO = st_join(res.ANO, regnor, left = TRUE)
+
+
+
 # ellenberg-type values data
 cwm_ano <- read_rds("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/results_ANO.RDS")
 
 cwm_ano_original <- cwm_ano$original|> 
   select(globalid, ano_flate_id:ano_punkt_id, CC1:richness) |> 
   select(-contains("2"))
-
-# species data
-species_ano <- read_csv2("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/ANO_sp.csv")
-
-# create species richness variable
-species_richness <- species_ano |> 
-  group_by(parentglobalid) |> 
-  summarise(species_richness = n_distinct(art_navn),
-            plot_cover = sum(art_dekning))
 
 
 
@@ -46,6 +64,7 @@ geo_ano_raw |>
   tidylog::anti_join(cwm_ano_original, by = join_by(globalid, ano_flate_id, ano_punkt_id)) |> 
   group_by(ano_flate_id) |> 
   summarise(n = n_distinct(ano_punkt_id))
+
 
 
 # data preparation
@@ -72,54 +91,52 @@ geo_ano_raw <- geo_ano_raw |>
          ano_punkt_id = as.factor(ano_punkt_id))
 
 
-### general exploration
-# join species richness data to geo data
-#geo_ano |> 
-#  tidylog::left_join(species_richness, by = c("globalid" = "parentglobalid")) ## FAR TOO MANY SITES ONLY IN GEO DATA!!
-#
-#
-## how many of those that don't match, still have an estimation of plant cover in the geo data
-#geo_ano |> tidylog::anti_join(species_richness, by = c("globalid" = "parentglobalid")) |> 
-#  filter(!is.na(karplanter_dekning))
+
 
 # how many sites have fewer than 18 points?  ---> 38 sites. This is normal.
 geo_ano_raw |> group_by(ano_flate_id) |> 
   summarise(n = n_distinct(ano_punkt_id)) |> 
   filter(n < 18)
 
+
+
 geo_ano <- geo_ano_raw |> 
+  # stack the resolutions and analysis type
   pivot_longer(cols = c("kartleggingsenhet_1m2":"kartleggingsenhet_250m2_20000"), names_to = "scale", values_to = "kartleggingsenhet") |>
   mutate(resolution = if_else(grepl("20000", scale), 20000, 5000),
          analysis_type = if_else(grepl("1m2", scale), "1m2", "250m2")) |> 
   select(-scale) |> 
   filter(!is.na(kartleggingsenhet)) |> 
   # separate out main and secondary veg types
-  mutate(main_kartleggingsenhet = str_extract(kartleggingsenhet, "^[^-]+"),
-         secondary_kartleggingsenhet = str_extract(kartleggingsenhet, "(?<=-).*")) |> 
+  mutate(hovedtype = str_extract(kartleggingsenhet, "^[^-]+"),
+         secondary_kartleggingsenhet = str_extract(kartleggingsenhet, "(?<=-).*"))
+
+
+geo_ano_vat <- geo_ano |> 
   # filter out unused vegetation types and NAs
-  tidylog::filter(main_kartleggingsenhet %in% c("V1", "V2", "V3", "V6", "V8", "V9"),
+  tidylog::filter(hovedtype %in% c("V1", "V2", "V3", "V6", "V8", "V9"),
          !is.na(response_variable_values),
          !is.na(secondary_kartleggingsenhet)) |> 
   # create agglomerate category for rare nature types
   group_by(resolution, analysis_type) |> 
   mutate(secondary_kartleggingsenhet_agglo = case_when(
-    (main_kartleggingsenhet == "V1" & secondary_kartleggingsenhet %in% c("C-3", "C-4", "C-7", "C-8")) | 
-      (main_kartleggingsenhet == "V2" & secondary_kartleggingsenhet %in% c("C-2", "C-3")) | 
-      (main_kartleggingsenhet == "V3") | 
-      (main_kartleggingsenhet == "V6" & secondary_kartleggingsenhet %in% c("C-2", "C-4", "C-6", "C-8"))  | 
-      (main_kartleggingsenhet == "V8" & secondary_kartleggingsenhet %in% c("C-2", "C-3"))  |
-      (main_kartleggingsenhet == "V9" & secondary_kartleggingsenhet %in% c("C-2", "C-3")) ~ "rare",
+    (hovedtype == "V1" & secondary_kartleggingsenhet %in% c("C-3", "C-4", "C-7", "C-8")) | 
+      (hovedtype == "V2" & secondary_kartleggingsenhet %in% c("C-2", "C-3")) | 
+      (hovedtype == "V3") | 
+      (hovedtype == "V6" & secondary_kartleggingsenhet %in% c("C-2", "C-4", "C-6", "C-8"))  | 
+      (hovedtype == "V8" & secondary_kartleggingsenhet %in% c("C-2", "C-3"))  |
+      (hovedtype == "V9" & secondary_kartleggingsenhet %in% c("C-2", "C-3")) ~ "rare",
     TRUE ~ "common"
   ),
-        kartleggingsenhet_agglo = paste(main_kartleggingsenhet, secondary_kartleggingsenhet_agglo, sep = "-")
+        kartleggingsenhet_agglo = paste(hovedtype, secondary_kartleggingsenhet_agglo, sep = "-")
   )
 
-geo_ano |> 
+geo_ano_vat |> 
   group_by(kartleggingsenhet, resolution, analysis_type, response_variable_names) |> 
   summarise(count = n())
 
 
-geo_ano_general <- geo_ano |> 
+geo_ano_general <- geo_ano_vat |> 
   group_by(kartleggingsenhet, resolution, analysis_type) |>  
   mutate(n_sites = n_distinct(ano_flate_id), n_points = n_distinct(ano_punkt_id)) |> 
   group_by(kartleggingsenhet, resolution, analysis_type, ano_flate_id, n_sites, n_points) |> 
@@ -137,7 +154,7 @@ geo_ano_general <- geo_ano |>
 
 # Set-up for all vegetation types
 # set up the parameters
-geo_ano_analysis <- geo_ano |> 
+geo_ano_analysis <- geo_ano_vat |> 
   group_by(kartleggingsenhet, resolution, analysis_type, response_variable_names) |> 
   summarise(mean_control = mean(response_variable_values, na.rm = TRUE),
             sd_dat = sd(response_variable_values, na.rm = TRUE),
@@ -153,7 +170,7 @@ geo_ano_analysis <- geo_ano |>
             f2_10 = (effect_10^2)/(1 - effect_10^2)) |> 
   
   # pivot to long format
-  select(kartleggingsenhet, resolution, analysis_type, response_variable_names, f2_1, f2_5, f2_10) |> 
+  select(kartleggingsenhet, resolution, analysis_type, response_variable_names, f2_1, f2_5, f2_10, sd_dat) |> 
   tidylog::pivot_longer(
     cols = starts_with("f2_"),
     names_to = "delta_level",
