@@ -5,6 +5,7 @@ library(lme4)
 library(simr)
 library(readxl)
 library(formattable)
+library(sf)
 
 
 # set colours
@@ -19,58 +20,34 @@ customGreen = "#71CA97"
 ano_dictionary <- read_excel("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/ano_5000_20000_dictionary.xlsx")
 
 
+# Spatial files
 
-# read in spatial files
-res.ANO <- results.ANO[['original']]
+# ellenberg-type values data - select 'original' layer
+results_ano <- read_rds("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/spatial_files/results_ANO.RDS")$original
 
-# add geometry again
-st_geometry(res.ANO) <- st_geometry(ANO.all)
 
-# read Norway and region spatial data
-nor <- st_read(here::here("indicators/NO_FUNC_001-004/data/spatial/outlineOfNorway_EPSG25833.shp"), quiet = T) %>%
-  st_as_sf() %>%
-  st_transform(crs = crs(ANO.all))
+# ANO_all file
+ANO_all <- read_rds("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/spatial_files/ANO_all.RDS")
 
-reg <- st_read(here::here("indicators/NO_FUNC_001-004/data/spatial/regions.shp"), quiet = T) %>%
-  st_as_sf() %>%
-  st_transform(crs = crs(ANO.all))
+# add geometry to the results file
+st_geometry(results_ano) <- st_geometry(ANO_all)
+
+# read in regional geometry file
+reg <- st_read("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/spatial_files/regions.shp", quiet = T)  |> 
+  st_as_sf() |> 
+  st_transform(crs = st_crs(ANO_all))
 
 # change region names to something R-friendly and merge region with Norway spatial data
 #reg$region
-reg$region <- c("Northern.Norway","Central.Norway","Eastern.Norway","Western.Norway","Southern.Norway")
-
-regnor <- st_intersection(reg,nor)
-
-# join region info to res.ANO
-res.ANO = st_join(res.ANO, regnor, left = TRUE)
+reg$region <- c("Northern_Norway", "Central_Norway", "Eastern_Norway", "Western_Norway", "Southern_Norway")
 
 
-
-# ellenberg-type values data
-cwm_ano <- read_rds("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/results_ANO.RDS")
-
-cwm_ano_original <- cwm_ano$original|> 
-  select(globalid, ano_flate_id:ano_punkt_id, CC1:richness) |> 
-  select(-contains("2"))
-
-
-
-# geo data
-geo_ano_raw <- read_csv2("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/data/ANO_geo.csv")
-
-# check which plots in geo_ano don't have data in geo_ano_original
-geo_ano_raw |> 
-  # join to ellenberg index data
-  tidylog::anti_join(cwm_ano_original, by = join_by(globalid, ano_flate_id, ano_punkt_id)) |> 
-  group_by(ano_flate_id) |> 
-  summarise(n = n_distinct(ano_punkt_id))
-
-
-
-# data preparation
-geo_ano_raw <- geo_ano_raw |> 
-  # join to ellenberg index data
-  tidylog::left_join(cwm_ano_original, by = join_by(globalid, ano_flate_id, ano_punkt_id)) |> 
+# join region info to results_ANO
+results_ano_raw <- st_join(results_ano, reg, left = TRUE) |> 
+  tibble() |> 
+  #select(globalid, ano_flate_id:ano_punkt_id, CC1:region) |> 
+  #select(-contains("2")) |> 
+  
   # remove description from mapping name variables
   mutate(kartleggingsenhet_1m2 = str_remove(kartleggingsenhet_1m2, " .*"),
          kartleggingsenhet_250m2 = str_remove(kartleggingsenhet_250m2, " .*")) |> 
@@ -82,10 +59,8 @@ geo_ano_raw <- geo_ano_raw |>
   tidylog::left_join(ano_dictionary, by = join_by(kartleggingsenhet_250m2 == kartleggingsenhet_1m2_5000 ))  |> 
   rename(kartleggingsenhet_250m2_20000 = kartleggingsenhet_20000) |> 
   # gather response variables
-  pivot_longer(cols = c("fremmedarter_total_dekning", "busker_dekning", "vedplanter_total_dekning", "Light1", "Moist1", "pH1", "Nitrogen1", "richness"), names_to = "response_variable_names", values_to = "response_variable_values") |> 
-  select(globalid, ano_flate_id, ano_punkt_id, kartleggingsenhet_1m2, kartleggingsenhet_1m2_20000, kartleggingsenhet_250m2, kartleggingsenhet_250m2_20000, response_variable_names, response_variable_values) |> 
-  # filter out fremmedarter_total_dekning for the moment
-  filter(!response_variable_names == "fremmedarter_total_dekning") |> 
+  pivot_longer(cols = c("busker_dekning", "vedplanter_total_dekning", "Light1", "Moist1", "pH1", "Nitrogen1", "richness"), names_to = "response_variable_names", values_to = "response_variable_values") |> #"fremmedarter_total_dekning", 
+  select(globalid, ano_flate_id, ano_punkt_id, kartleggingsenhet_1m2, kartleggingsenhet_1m2_20000, kartleggingsenhet_250m2, kartleggingsenhet_250m2_20000, response_variable_names, response_variable_values, region) |> 
   # change site and point ids to factors
   mutate(ano_flate_id = as.factor(ano_flate_id),
          ano_punkt_id = as.factor(ano_punkt_id))
@@ -94,29 +69,25 @@ geo_ano_raw <- geo_ano_raw |>
 
 
 # how many sites have fewer than 18 points?  ---> 38 sites. This is normal.
-geo_ano_raw |> group_by(ano_flate_id) |> 
+results_ano_raw |> group_by(ano_flate_id) |> 
   summarise(n = n_distinct(ano_punkt_id)) |> 
   filter(n < 18)
 
 
 
-geo_ano <- geo_ano_raw |> 
+geo_ano <- results_ano_raw |> 
   # stack the resolutions and analysis type
   pivot_longer(cols = c("kartleggingsenhet_1m2":"kartleggingsenhet_250m2_20000"), names_to = "scale", values_to = "kartleggingsenhet") |>
   mutate(resolution = if_else(grepl("20000", scale), 20000, 5000),
          analysis_type = if_else(grepl("1m2", scale), "1m2", "250m2")) |> 
   select(-scale) |> 
-  filter(!is.na(kartleggingsenhet)) |> 
+  tidylog::filter(!is.na(kartleggingsenhet)) |> 
   # separate out main and secondary veg types
   mutate(hovedtype = str_extract(kartleggingsenhet, "^[^-]+"),
          secondary_kartleggingsenhet = str_extract(kartleggingsenhet, "(?<=-).*"))
 
 
 geo_ano_vat <- geo_ano |> 
-  # filter out unused vegetation types and NAs
-  tidylog::filter(hovedtype %in% c("V1", "V2", "V3", "V6", "V8", "V9"),
-         !is.na(response_variable_values),
-         !is.na(secondary_kartleggingsenhet)) |> 
   # create agglomerate category for rare nature types
   group_by(resolution, analysis_type) |> 
   mutate(secondary_kartleggingsenhet_agglo = case_when(
@@ -129,7 +100,11 @@ geo_ano_vat <- geo_ano |>
     TRUE ~ "common"
   ),
         kartleggingsenhet_agglo = paste(hovedtype, secondary_kartleggingsenhet_agglo, sep = "-")
-  )
+  ) |> 
+  # filter out unused vegetation types and NAs
+  tidylog::filter(hovedtype %in% c("V1", "V2", "V3", "V6", "V8", "V9"),
+         !is.na(response_variable_values),
+         !is.na(secondary_kartleggingsenhet)) 
 
 geo_ano_vat |> 
   group_by(kartleggingsenhet, resolution, analysis_type, response_variable_names) |> 
