@@ -145,18 +145,84 @@ geo_ano_general <- geo_ano_vat |>
             percent_plots_site_greater_than_1 = ((sum(n_points_in_site > 1)/sum(n_points_in_site))*100), .groups = 'drop')
 
 
-
+# stack kartlegging levels into one column: all, rare, common.
 geo_ano_vat <- geo_ano_vat |> 
-  mutate(hovedtype = paste(hovedtype, "all", sep = "-")) |> 
-  tidylog::pivot_longer(c("hovedtype", "kartleggingsenhet_agglo"), names_to = "ddd", values_to = "grouping") |> 
-  select(-ddd)
+  mutate(kartleggingsenhet_all = paste(hovedtype, "all", sep = "-")) |> 
+  tidylog::pivot_longer(c("kartleggingsenhet_all", "kartleggingsenhet_agglo"), names_to = "ddd", values_to = "grouping") |> 
+  select(-ddd) |> 
+  #filter out the duplicates (where all of the kartleggingsenheter are rare or common)
+  tidylog::filter(!grouping %in% c("V3-all", "V6-all", "V9-all"))
 
+# extract total number of observations
+geo_ano_vat <- geo_ano_vat |>
+  group_by(response_variable_names) |> 
+  mutate(total_obs = n_distinct(ano_punkt_id)) |> 
+  ungroup() |> 
+  mutate(response_variable_names = str_replace_all(response_variable_names, "_", "_"))
 
 ### analyses
 
-# Set-up for all vegetation types
-# set up the parameters
-geo_ano_analysis <- geo_ano_vat |>
+# power function that handles NAs
+safe_pwr <- possibly(
+  function(f2, power) {
+    pwr.f2.test(u = 1, v = NULL, f2 = f2, power = power, sig.level = 0.05) # we leave v as NULL because this is what we want to calculate
+  },
+  otherwise = NULL
+)
+
+
+# analyses in three stages:
+# stage 1: national scale power analyses
+geo_ano_analysis_national <- geo_ano_vat |>
+  group_by(grouping, resolution, analysis_type, response_variable_names, total_obs) |> 
+  tidylog::summarise(n_obs = n_distinct(ano_punkt_id),
+                     obs_threshold = n_obs/total_obs,
+                     range_vals = max(response_variable_values) - min(response_variable_values),
+                     sd_threshold = range_vals/5,
+                     mean_control = mean(response_variable_values, na.rm = TRUE),
+                     sd_dat = sd(response_variable_values, na.rm = TRUE),
+                     .groups = "drop") |>
+  mutate(delta_1 = mean_control*0.01,
+         delta_5 = mean_control*0.05,
+         delta_10 = mean_control*0.10,
+         effect_1 = delta_1/sd_dat,
+         effect_5 = delta_5/sd_dat,
+         effect_10 = delta_10/sd_dat,
+         f2_1 = (effect_1^2)/(1 - effect_1^2), 
+         f2_5 = (effect_5^2)/(1 - effect_5^2), 
+         f2_10 = (effect_10^2)/(1 - effect_10^2)) |> 
+  
+  # pivot to long format and transform delta to numeric
+  select(grouping, resolution, analysis_type, response_variable_names, f2_1, f2_5, f2_10, sd_dat, n_obs, obs_threshold, sd_threshold, total_obs) |> 
+  tidylog::pivot_longer(
+    cols = starts_with("f2_"),
+    names_to = "delta_level",
+    names_prefix = "f2_",
+    values_to = "f2"
+  ) |> 
+  mutate(delta_level = as.numeric(delta_level)) |> 
+  
+  #filter out NAs
+  filter(!is.na(f2),
+         f2 > 0) |>
+  
+  # expand to cross with power levels
+  crossing(power = c(0.6, 0.8))
+
+
+geo_ano_results_national <- geo_ano_analysis_national |>
+  mutate(test_result = map2(f2, power, ~ safe_pwr(.x, .y)),
+         n_plots = map_dbl(test_result, ~ if (is.null(.x)) NA_real_ else .x$u + .x$v + 1),
+         n_plots = round(n_plots, digits = 0)) |> 
+  select(-test_result) |> 
+  # filter for response variables measured at the correct scales
+  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light", "Moist", "Nitrogen", "pH", "richness"))|(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning", "busker_dekning")))
+
+
+
+
+# stage 2: geopolitical reagions
+geo_ano_analysis_regional <- geo_ano_vat |>
   group_by(region, grouping, resolution, analysis_type, response_variable_names) |> 
   tidylog::summarise(n_obs = n_distinct(ano_punkt_id),
                      obs_threshold = n_obs/5,
@@ -176,7 +242,7 @@ geo_ano_analysis <- geo_ano_vat |>
             f2_10 = (effect_10^2)/(1 - effect_10^2)) |> 
   
   # pivot to long format and transform delta to numeric
-  select(region, grouping, resolution, analysis_type, response_variable_names, f2_1, f2_5, f2_10, sd_dat) |> 
+  select(region, grouping, resolution, analysis_type, response_variable_names, f2_1, f2_5, f2_10, sd_dat, n_obs, obs_threshold, sd_threshold) |> 
   tidylog::pivot_longer(
     cols = starts_with("f2_"),
     names_to = "delta_level",
@@ -192,15 +258,8 @@ geo_ano_analysis <- geo_ano_vat |>
   # expand to cross with power levels
   crossing(power = c(0.6, 0.8))
 
-# power function that handles NAs
-safe_pwr <- possibly(
-  function(f2, power) {
-    pwr.f2.test(u = 1, v = NULL, f2 = f2, power = power, sig.level = 0.05) # we leave v as NULL because this is what we want to calculate
-  },
-  otherwise = NULL
-)
 
-geo_ano_results <- geo_ano_analysis |>
+geo_ano_results_regional <- geo_ano_analysis_regional |>
   mutate(test_result = map2(f2, power, ~ safe_pwr(.x, .y)),
          n_plots = map_dbl(test_result, ~ if (is.null(.x)) NA_real_ else .x$u + .x$v + 1),
          n_plots = round(n_plots, digits = 0)) |> 
@@ -210,51 +269,57 @@ geo_ano_results <- geo_ano_analysis |>
 
 
 
-# Set-up for agglomerated vegetation types
-#geo_ano_analysis_agglo <- geo_ano |> 
-#  group_by(kartleggingsenhet_agglo, resolution, analysis_type, response_variable_names) |> 
-#  summarise(mean_control = mean(response_variable_values, na.rm = TRUE),
-#            sd_dat = sd(response_variable_values, na.rm = TRUE),
-#            .groups = "drop") |>
-#  mutate(delta_1 = mean_control*0.01,
-#         delta_5 = mean_control*0.05,
-#         delta_10 = mean_control*0.10,
-#         effect_1 = delta_1/sd_dat,
-#         effect_5 = delta_5/sd_dat,
-#         effect_10 = delta_10/sd_dat,
-#         f2_1 = (effect_1^2)/(1 - effect_1^2), 
-#         f2_5 = (effect_5^2)/(1 - effect_5^2), 
-#         f2_10 = (effect_10^2)/(1 - effect_10^2)) |> 
-#  
-#  # pivot to long format
-#  select(kartleggingsenhet_agglo, resolution, analysis_type, response_variable_names, f2_1, f2_5, f2_10) |> 
-#  tidylog::pivot_longer(
-#    cols = starts_with("f2_"),
-#    names_to = "delta_level",
-#    names_prefix = "f2_",
-#    values_to = "f2"
-#  ) |> 
-#  
-#  #filter out NAs
-#  filter(!is.na(f2),
-#         f2 > 0) |>
-#  
-#  # expand to cross with power levels
-#  crossing(power = c(0.6, 0.8))
-#
-#geo_ano_results_agglo <- geo_ano_analysis_agglo |>
-#  mutate(test_result = map2(f2, power, ~ safe_pwr(.x, .y)),
-#         n_plots = map_dbl(test_result, ~ if (is.null(.x)) NA_real_ else .x$u + .x$v + 1),
-#         n_plots = round(n_plots, digits = 0)) |> 
-#  select(-test_result) |> 
-#  # filter for response variables measured at the correct scales
-#  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light1", "Moist1", "Nitrogen1", "pH1", "richness"))|#(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning", "busker_dekning")))
-#
-#
-#
-#
-#
-#
+
+
+# stage 3: Bioclimatic reagions
+geo_ano_analysis_bioclimatic <- geo_ano_vat |>
+  group_by(BCregion, grouping, resolution, analysis_type, response_variable_names) |> 
+  tidylog::summarise(n_obs = n_distinct(ano_punkt_id),
+                     obs_threshold = n_obs/5,
+                     range_vals = max(response_variable_values) - min(response_variable_values),
+                     sd_threshold = range_vals/5,
+                     mean_control = mean(response_variable_values, na.rm = TRUE),
+                     sd_dat = sd(response_variable_values, na.rm = TRUE),
+                     .groups = "drop") |>
+  mutate(delta_1 = mean_control*0.01,
+         delta_5 = mean_control*0.05,
+         delta_10 = mean_control*0.10,
+         effect_1 = delta_1/sd_dat,
+         effect_5 = delta_5/sd_dat,
+         effect_10 = delta_10/sd_dat,
+         f2_1 = (effect_1^2)/(1 - effect_1^2), 
+         f2_5 = (effect_5^2)/(1 - effect_5^2), 
+         f2_10 = (effect_10^2)/(1 - effect_10^2)) |> 
+  
+  # pivot to long format and transform delta to numeric
+  select(BCregion, grouping, resolution, analysis_type, response_variable_names, f2_1, f2_5, f2_10, sd_dat, n_obs, obs_threshold, sd_threshold) |> 
+  tidylog::pivot_longer(
+    cols = starts_with("f2_"),
+    names_to = "delta_level",
+    names_prefix = "f2_",
+    values_to = "f2"
+  ) |> 
+  mutate(delta_level = as.numeric(delta_level)) |> 
+  
+  #filter out NAs
+  filter(!is.na(f2),
+         f2 > 0) |>
+  
+  # expand to cross with power levels
+  crossing(power = c(0.6, 0.8))
+
+
+geo_ano_results_bioclimatic <- geo_ano_analysis_bioclimatic |>
+  mutate(test_result = map2(f2, power, ~ safe_pwr(.x, .y)),
+         n_plots = map_dbl(test_result, ~ if (is.null(.x)) NA_real_ else .x$u + .x$v + 1),
+         n_plots = round(n_plots, digits = 0)) |> 
+  select(-test_result) |> 
+  # filter for response variables measured at the correct scales
+  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light", "Moist", "Nitrogen", "pH", "richness"))|(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning", "busker_dekning")))
+
+
+
+
 ### figures
 #geo_ano_results_figures <- geo_ano_results |> 
 #  select(region, hovedtype, resolution, analysis_type, response_variable_names, n_plots, power, delta_level) |> 
