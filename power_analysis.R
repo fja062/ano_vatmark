@@ -8,12 +8,6 @@ library(formattable)
 library(sf)
 
 
-# set colours
-customGreen0 = "#DeF7E9"
-customGreen = "#71CA97"
-
-
-
 ### load and clean data
 
 # ANO 5000 - 20 000 dictionary
@@ -108,7 +102,8 @@ geo_ano |>
   ggplot(aes(x = hovedtype, y = n)) + 
   geom_col()
 
-geo_ano_vat <- geo_ano |> 
+
+geo_ano_agglo <- geo_ano |> 
   # create agglomerate category for rare nature types
   group_by(resolution, analysis_type) |> 
   mutate(secondary_kartleggingsenhet_agglo = case_when(
@@ -123,12 +118,102 @@ geo_ano_vat <- geo_ano |>
         kartleggingsenhet_agglo = paste(hovedtype, secondary_kartleggingsenhet_agglo, sep = "-")
   ) |> 
   ungroup() |> 
-  # filter out unused vegetation types and NAs
-  tidylog::filter(hovedtype %in% c("V1", "V2", "V3", "V6", "V8", "V9"),
-         !is.na(response_variable_values),
-         !is.na(hovedtype)) 
+  # filter out NAs
+  filter(!is.na(response_variable_values),
+         !is.na(hovedtype))
 
-geo_ano_vat |> 
+
+# stack kartlegging levels into one column: all, rare, common.
+geo_ano_vat_detect <- geo_ano_agglo |> 
+  # filter out unused vegetation types and NAs
+  tidylog::filter(hovedtype %in% c("V1", "V2", "V3", "V6", "V8", "V9"))
+
+
+# detectability of wetland types in the whole ANO database
+geo_ano_agglo_detect <- geo_ano_agglo #|> 
+  #filter(resolution == 5000, analysis_type == "1m2") <--- should we filter here or not?
+
+# expand dataset to get all possible combinations
+all_site_veg <- expand_grid(
+  ano_flate_id = unique(geo_ano_agglo_detect$ano_flate_id),
+  hovedtype = unique(geo_ano_agglo_detect$hovedtype))
+
+# mark which combinations were actually detected
+site_veg_long <- all_site_veg %>%
+  tidylog::left_join(
+    geo_ano_agglo_detect |> distinct(ano_flate_id, hovedtype) |>  mutate(detected = TRUE),
+    by = c("ano_flate_id", "hovedtype")
+  )  |> 
+  mutate(detected = replace_na(detected, FALSE))
+
+
+# what is the likelihood of detection of the vatmark hovedtyper if you randomly visited *any* ANO site 
+site_detectability <- site_veg_long |> 
+  group_by(hovedtype) |> 
+  count(detected) |> 
+  pivot_wider(names_from = detected, values_from = n) |> 
+  mutate(n = sum(`TRUE`, `FALSE`),
+         detectability = (`TRUE`/sum(`TRUE`, `FALSE`))*100) |> 
+  tidylog::filter(hovedtype %in% c("V1", "V2", "V3", "V6", "V8", "V9"))
+
+geo_ano_agglo |> 
+  mutate(n_national_plots = n_distinct(ano_punkt_id)) |> 
+  group_by(region) |> 
+  mutate(n_region_plots = n_distinct(ano_punkt_id)) |> 
+  group_by(BCregion) |> 
+  mutate(n_BCregion_plots = n_distinct(ano_punkt_id)) |> 
+  group_by(hovedtype) |> 
+  mutate(n_national_hovedtype_plots = n_distinct(ano_punkt_id)) |> 
+  group_by(region, hovedtype) |> 
+  mutate(n_region_hovedtype_plots = n_distinct(ano_punkt_id)) |> 
+  group_by(BCregion, hovedtype) |> 
+  mutate(n_BCregion_hovedtype_plots = n_distinct(ano_punkt_id)) |> 
+  ungroup() |> 
+  distinct(hovedtype, region, BCregion, n_national_plots, n_region_plots, n_BCregion_plots, n_national_hovedtype_plots, n_region_hovedtype_plots, n_BCregion_hovedtype_plots) |> 
+  mutate(national_detectability = (n_national_hovedtype_plots/n_national_plots)*100,
+         regional_detectability = (n_region_hovedtype_plots/n_region_plots)*100,
+         bioclimatic_detectability = (n_BCregion_hovedtype_plots/n_BCregion_plots)*100) |> 
+  tidylog::filter(hovedtype %in% c("V1", "V2", "V3", "V6", "V8", "V9"))
+
+
+# detectability of wetland types in the ANO vatmark database
+geo_ano_vat_detect |> 
+  filter(resolution == 5000, analysis_type == "1m2") |> 
+  mutate(n_national_plots = n_distinct(ano_punkt_id)) |> 
+  group_by(region) |> 
+  mutate(n_region_plots = n_distinct(ano_punkt_id)) |> 
+  group_by(BCregion) |> 
+  mutate(n_BCregion_plots = n_distinct(ano_punkt_id)) |> 
+  group_by(hovedtype) |> 
+  mutate(n_national_hovedtype_plots = n_distinct(ano_punkt_id)) |> 
+  group_by(region, hovedtype) |> 
+  mutate(n_region_hovedtype_plots = n_distinct(ano_punkt_id)) |> 
+  group_by(BCregion, hovedtype) |> 
+  mutate(n_BCregion_hovedtype_plots = n_distinct(ano_punkt_id)) |> 
+  ungroup() |> 
+  distinct(hovedtype, region, BCregion, n_national_plots, n_region_plots, n_BCregion_plots, n_national_hovedtype_plots, n_region_hovedtype_plots, n_BCregion_hovedtype_plots) |> 
+  mutate(national_detectability = (n_national_hovedtype_plots/n_national_plots)*100,
+         regional_detectability = (n_region_hovedtype_plots/n_region_plots)*100,
+         bioclimatic_detectability = (n_BCregion_hovedtype_plots/n_BCregion_plots)*100)
+
+
+
+geo_ano_vat <- geo_ano_vat_detect |> 
+  mutate(kartleggingsenhet_all = paste(hovedtype, "all", sep = "-")) |> 
+  tidylog::pivot_longer(c("kartleggingsenhet_all", "kartleggingsenhet_agglo"), names_to = "ddd", values_to = "grouping") |> 
+  select(-ddd) |> 
+  #filter out the duplicates (where all of the kartleggingsenheter are rare or common)
+  tidylog::filter(!grouping %in% c("V3-all", "V6-all", "V9-all"))
+
+
+
+
+
+
+
+  
+  
+  geo_ano_vat |> 
   group_by(hovedtype, resolution, analysis_type, response_variable_names) |> 
   summarise(count = n())
 
@@ -145,20 +230,16 @@ geo_ano_general <- geo_ano_vat |>
             percent_plots_site_greater_than_1 = ((sum(n_points_in_site > 1)/sum(n_points_in_site))*100), .groups = 'drop')
 
 
-# stack kartlegging levels into one column: all, rare, common.
-geo_ano_vat <- geo_ano_vat |> 
-  mutate(kartleggingsenhet_all = paste(hovedtype, "all", sep = "-")) |> 
-  tidylog::pivot_longer(c("kartleggingsenhet_all", "kartleggingsenhet_agglo"), names_to = "ddd", values_to = "grouping") |> 
-  select(-ddd) |> 
-  #filter out the duplicates (where all of the kartleggingsenheter are rare or common)
-  tidylog::filter(!grouping %in% c("V3-all", "V6-all", "V9-all"))
 
 # extract total number of observations
 geo_ano_vat <- geo_ano_vat |>
-  group_by(response_variable_names) |> 
+  group_by(response_variable_names, resolution, analysis_type) |> 
   mutate(total_obs = n_distinct(ano_punkt_id)) |> 
   ungroup() |> 
-  mutate(response_variable_names = str_replace_all(response_variable_names, "_", "_"))
+  mutate(response_variable_names = str_replace_all(response_variable_names, "_", "_")) |> 
+  
+  # filter out busker_dekning for the moment
+  filter(!response_variable_names == "busker_dekning")
 
 ### analyses
 
@@ -178,7 +259,7 @@ geo_ano_analysis_national <- geo_ano_vat |>
   tidylog::summarise(n_obs = n_distinct(ano_punkt_id),
                      obs_threshold = n_obs/total_obs,
                      range_vals = max(response_variable_values) - min(response_variable_values),
-                     sd_threshold = range_vals/5,
+                     sd_threshold = range_vals*0.15,
                      mean_control = mean(response_variable_values, na.rm = TRUE),
                      sd_dat = sd(response_variable_values, na.rm = TRUE),
                      .groups = "drop") |>
@@ -216,18 +297,18 @@ geo_ano_results_national <- geo_ano_analysis_national |>
          n_plots = round(n_plots, digits = 0)) |> 
   select(-test_result) |> 
   # filter for response variables measured at the correct scales
-  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light", "Moist", "Nitrogen", "pH", "richness"))|(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning", "busker_dekning")))
+  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light", "Moist", "Nitrogen", "pH", "richness"))|(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning"))) #, "busker_dekning" removing busker dekning for the moment
 
 
 
 
 # stage 2: geopolitical reagions
 geo_ano_analysis_regional <- geo_ano_vat |>
-  group_by(region, grouping, resolution, analysis_type, response_variable_names) |> 
+  group_by(region, grouping, resolution, analysis_type, response_variable_names, total_obs) |> 
   tidylog::summarise(n_obs = n_distinct(ano_punkt_id),
-                     obs_threshold = n_obs/5,
+                     obs_threshold = n_obs/total_obs,
                      range_vals = max(response_variable_values) - min(response_variable_values),
-                     sd_threshold = range_vals/5,
+                     sd_threshold = range_vals*0.15,
             mean_control = mean(response_variable_values, na.rm = TRUE),
             sd_dat = sd(response_variable_values, na.rm = TRUE),
             .groups = "drop") |>
@@ -265,7 +346,7 @@ geo_ano_results_regional <- geo_ano_analysis_regional |>
          n_plots = round(n_plots, digits = 0)) |> 
   select(-test_result) |> 
   # filter for response variables measured at the correct scales
-  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light", "Moist", "Nitrogen", "pH", "richness"))|(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning", "busker_dekning")))
+  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light", "Moist", "Nitrogen", "pH", "richness"))|(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning"))) # , "busker_dekning"
 
 
 
@@ -273,11 +354,11 @@ geo_ano_results_regional <- geo_ano_analysis_regional |>
 
 # stage 3: Bioclimatic reagions
 geo_ano_analysis_bioclimatic <- geo_ano_vat |>
-  group_by(BCregion, grouping, resolution, analysis_type, response_variable_names) |> 
+  group_by(BCregion, grouping, resolution, analysis_type, response_variable_names, total_obs) |> 
   tidylog::summarise(n_obs = n_distinct(ano_punkt_id),
-                     obs_threshold = n_obs/5,
+                     obs_threshold = n_obs/total_obs,
                      range_vals = max(response_variable_values) - min(response_variable_values),
-                     sd_threshold = range_vals/5,
+                     sd_threshold = range_vals*0.15,
                      mean_control = mean(response_variable_values, na.rm = TRUE),
                      sd_dat = sd(response_variable_values, na.rm = TRUE),
                      .groups = "drop") |>
@@ -315,7 +396,13 @@ geo_ano_results_bioclimatic <- geo_ano_analysis_bioclimatic |>
          n_plots = round(n_plots, digits = 0)) |> 
   select(-test_result) |> 
   # filter for response variables measured at the correct scales
-  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light", "Moist", "Nitrogen", "pH", "richness"))|(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning", "busker_dekning")))
+  tidylog::filter((analysis_type == "1m2" & response_variable_names %in% c("Light", "Moist", "Nitrogen", "pH", "richness"))|(analysis_type == "250m2" & response_variable_names %in% c("vedplanter_total_dekning"))) # , "busker_dekning"
+
+
+
+
+
+# write code to determine the detectability at regional and bioclimatic scales given the predictions at the national level.
 
 
 

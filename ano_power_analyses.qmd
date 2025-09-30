@@ -1,6 +1,8 @@
 ---
 title: "Appendix 1: ANO power analyses"
-format: html
+format: 
+  html:
+    embed-resources: true
 echo: false
 ---
 
@@ -37,14 +39,11 @@ source("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/ano
 
 ## Data structure overview
 
-Of the 252 ANO flate sites, 38 have under the total 18 point IDs.
-
 ```{r results='asis'}
 geo_ano_general |> 
-  arrange(region, resolution, analysis_type) |> 
-    kableExtra::kbl() |> 
-    kableExtra::kable_styling(full_width = FALSE) |> 
-  kableExtra::kable_paper("hover")
+  arrange(region, resolution, analysis_type) |>
+  kbl(caption = "Table: Overview of the number of plots per region, vegetation type, resolution and analysis type.") |> 
+  kable_styling(full_width = FALSE)
 ```
 
 ```{r}
@@ -59,43 +58,56 @@ print(fig)
 
 ```
 
-## Power analysis results
+## Methods
 
-Below are illustrated the power analysis results. Each table describes the number of plots required to detect a 1, 5 or 10% change in each of the response variables, ~~with 60 or~~ 80% power. Analyses have been conducted at the 1:5000 and 1:20 000 resolution, and for the 1 x 1 m quadrat analyses as well as the 250 m\^2 circle. Analyses were conducted using the function `pwr.f2.test()` from the `pwr` package.
-
-Numbers are coloured according to their reliability, whereby black values are considered reliable, and grey values unreliable. The threshold for reliability was set according to the standard deviation of each response variable and the spread of the data for each response variable (see appendix figure X):
+Analyses were conducted using the function `pwr.f2.test()` from the `pwr` package. Analyses were performed using R Statistical Software (`r R.version.string`, RCoreTeam).
 
 
-```{r}
+```{r results='asis'}
 geo_ano_results_national |> 
   group_by(response_variable_names) |> 
   summarise(mean_sd = mean(sd_dat),
             min_sd = min(sd_dat),
             max_sd = max(sd_dat)
   ) |> 
-  kableExtra::kbl() |> 
-    kableExtra::kable_styling(full_width = FALSE) |> 
+  kableExtra::kbl(caption = "Table: ") |> 
+  kableExtra::kable_styling(full_width = FALSE) |> 
   kableExtra::kable_paper("hover")
   
 
 ```
 
-The number of data points (i.e. the number of `ano_punkt_id`) per vegetation type and per response variable varies from 1 to more than 2300: 
-```{r}
+The number of data points (i.e. the number of `ano_punkt_id`) per vegetation type and per response variable varies from 1 to more than 2300:
+
+```{r results='asis'}
 geo_ano_vat |> 
   group_by(grouping, response_variable_names) |> 
   summarise(n = n_distinct(ano_punkt_id)) |> 
   pivot_wider(names_from = response_variable_names, values_from = n) |> 
   kbl(escape = FALSE) |> 
-  kable_paper("hover") |> 
-      kable_styling(full_width = FALSE)
+  kable_paper("hover")
 
 
 ```
 
 
+## Results
 
-Thus, values below the standard deviation threshold are considered unreliable.
+Below are illustrated the power analysis results. Each table describes the number of plots required to detect a 1, 5 or 10% change in each of the response variables, with ~~60 or~~ 80% power. Analyses have been conducted at the 1:5000 and 1:20 000 resolution, and for the 1 x 1 m quadrat analyses as well as the 250 m\^2 circle.
+
+Numbers are coloured according to their reliability, whereby black values are considered reliable, and grey values unreliable. A threshold for reliability was set according to the standard deviation (SD) of each response variable and the spread of the data for each response variable, whereby the recommended number of plots was considered unreliable when the SD was lower than 10% of the range, and where the number of observations was lower than 15% of the total number of observations for each explanatory variable, or where there are simply too few observations (less than 5).
+
+
+```{r results='asis'}
+
+site_detectability |> 
+  select(hovedtype, detectability) |> 
+  kbl() |> 
+  kable_paper("hover")
+
+```
+
+
 
 ### National-level recommendations
 
@@ -123,14 +135,13 @@ walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(da
     select(hovedtype, grouping, delta_level, response_variable_names, n_plots, n_obs, sd_dat, sd_threshold, obs_threshold) |>
     filter(!is.na(n_plots)) |> 
     mutate(
-      obs_scale = (n_obs/1029),
       n_plots = if_else(
-      (sd_dat < sd_threshold) & obs_threshold < 0.15, 
+      ((sd_dat < sd_threshold) & (obs_threshold < 0.15))|(n_obs <= 3), 
       cell_spec(n_plots, color = "grey60"),
       cell_spec(n_plots, color = "black")
     )) |> 
     ungroup() |> 
-    select(-sd_dat, -sd_threshold, -n_obs, -obs_scale, -obs_threshold) |> 
+    select(-sd_dat, -sd_threshold, -n_obs, -obs_threshold) |> 
   pivot_wider(names_from = response_variable_names, values_from = n_plots) |> 
     arrange(hovedtype, delta_level) |> 
     select(-hovedtype)
@@ -138,24 +149,12 @@ walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(da
 
   print(summary_tbl  |> 
     kbl(escape = FALSE, caption = paste("1:", keys[1], "resolution")) |> 
-      kable_paper() |> 
-      add_header_above(c(" ", "1m^2 plot" = 6, "250m^2 circle" = 2), line_sep = 5) |> 
-      kable_styling(full_width = FALSE)
-
+      kable_paper("hover") |> 
+      add_header_above(c(" ", "1m^2 plot" = 6, "250m^2 circle" = 1), line_sep = 5) |> 
+      column_spec(1:2, extra_css = "white-space: nowrap;") |> 
+      column_spec(7, border_right = "1px solid grey")
       )
 })
-
-```
-
-
-```{r}
-geo_ano_results_national |> 
-  mutate(n_observations = paste0(n_obs, "/", total_obs)) |> 
-  distinct(grouping, resolution, response_variable_names, n_observations) |> 
-  pivot_wider(names_from = response_variable_names, values_from = n_observations) |> 
-  kbl(escape = FALSE) |> 
-  kable_paper() |> 
-      kable_styling(full_width = FALSE)
 
 ```
 
@@ -185,17 +184,16 @@ walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(da
   
   summary_tbl <- dat |> 
     mutate(hovedtype = str_extract(grouping, "^[^-]+")) |> 
-    select(region, hovedtype, grouping, delta_level, response_variable_names, n_plots, n_obs, sd_dat, sd_threshold) |>
+    select(region, hovedtype, grouping, delta_level, response_variable_names, n_plots, n_obs, sd_dat, sd_threshold, obs_threshold) |>
     filter(!is.na(n_plots)) |> 
     mutate(
-      obs_scale = (n_obs/1029),
       n_plots = if_else(
-      (sd_dat < sd_threshold) & (obs_scale < 0.15), 
+      ((sd_dat < sd_threshold) & (obs_threshold < 0.15))|(n_obs <= 3), 
       cell_spec(n_plots, color = "grey60"),
       cell_spec(n_plots, color = "black")
     )) |> 
     ungroup() |> 
-    select(-sd_dat, -sd_threshold, -n_obs, -obs_scale) |> 
+    select(-sd_dat, -sd_threshold, -n_obs, -obs_threshold) |> 
   pivot_wider(names_from = response_variable_names, values_from = n_plots) |> 
     arrange(hovedtype, delta_level) |> 
     select(-hovedtype)
@@ -203,17 +201,17 @@ walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(da
 
   print(summary_tbl  |> 
     kbl(escape = FALSE, caption = paste("1:", keys[1], "resolution")) |> #, ", keys[2], "plot type" , to detect a ", keys[3], "% change, with", keys[4], "% power."     #caption = paste("Summary for group:", paste(keys, collapse = " - "))
-      kable_paper() |> 
-      add_header_above(c(" " = 2, "1m^2 plot" = 6, "250m^2 circle" = 2), line_sep = 5) |> 
-      kable_styling(full_width = FALSE)
-
+      kable_paper("hover") |> 
+      add_header_above(c(" " = 2, "1m^2 plot" = 6, "250m^2 circle" = 1), line_sep = 5) |> 
+      kable_styling(full_width = FALSE) |> 
+      column_spec(1:2, extra_css = "white-space: nowrap;") |> 
+      column_spec(8, border_right = "1px solid grey")
       )
 })
 
 ```
 
-
-### Bioclimatice regional-level recommendations
+### Bioclimatic region-level recommendations
 
 ```{r results='asis'}
 
@@ -237,17 +235,16 @@ walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(da
   
   summary_tbl <- dat |> 
     mutate(hovedtype = str_extract(grouping, "^[^-]+")) |> 
-    select(BCregion, hovedtype, grouping, delta_level, response_variable_names, n_plots, n_obs, sd_dat, sd_threshold) |>
+    select(BCregion, hovedtype, grouping, delta_level, response_variable_names, n_plots, n_obs, sd_dat, sd_threshold, obs_threshold) |>
     filter(!is.na(n_plots)) |> 
     mutate(
-      obs_scale = (n_obs/1029),
       n_plots = if_else(
-      (sd_dat < sd_threshold) & (obs_scale < 0.15), 
+      ((sd_dat < sd_threshold) & (obs_threshold < 0.15))|(n_obs <= 3), 
       cell_spec(n_plots, color = "grey60"),
       cell_spec(n_plots, color = "black")
     )) |> 
     ungroup() |> 
-    select(-sd_dat, -sd_threshold, -n_obs, -obs_scale) |> 
+    select(-sd_dat, -sd_threshold, -n_obs, -obs_threshold) |> 
   pivot_wider(names_from = response_variable_names, values_from = n_plots) |> 
     arrange(hovedtype, delta_level) |> 
     select(-hovedtype)
@@ -255,9 +252,11 @@ walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(da
 
   print(summary_tbl  |> 
     kbl(escape = FALSE, caption = paste("1:", keys[1], "resolution")) |> #, ", keys[2], "plot type" , to detect a ", keys[3], "% change, with", keys[4], "% power."     #caption = paste("Summary for group:", paste(keys, collapse = " - "))
-      kable_paper() |> 
-      add_header_above(c(" " = 2, "1m^2 plot" = 6, "250m^2 circle" = 2), line_sep = 5) |> 
-      kable_styling(full_width = FALSE)
+      kable_paper("hover") |> 
+      add_header_above(c(" " = 2, "1m^2 plot" = 6, "250m^2 circle" = 1), line_sep = 5) |> 
+      kable_styling(full_width = FALSE) |> 
+      column_spec(1:2, extra_css = "white-space: nowrap;") |> 
+      column_spec(8, border_right = "1px solid grey")
 
       )
 })
@@ -265,3 +264,17 @@ walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(da
 ```
 
 
+
+### Unused tables
+
+```{r results='asis'}
+geo_ano_results_national |> 
+  mutate(n_observations = paste0(n_obs, " / ", total_obs)) |> 
+  distinct(grouping, resolution, response_variable_names, n_observations) |> 
+  pivot_wider(names_from = response_variable_names, values_from = n_observations) |> 
+  kbl(escape = FALSE) |> 
+  kable_paper("hover") |> 
+      kable_styling(full_width = FALSE) |> 
+      column_spec(1:8, extra_css = "white-space: nowrap;")
+
+```
