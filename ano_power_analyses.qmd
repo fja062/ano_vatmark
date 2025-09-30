@@ -1,17 +1,21 @@
 ---
-title: "ANO power analyses"
+title: "Appendix 1: ANO power analyses"
 format: html
-editor: visual
 echo: false
 ---
 
-
-
 ```{r setup, include=FALSE}
 options(tibble.width = Inf)
-# You might also want to set tibble.print_max = Inf to display all rows
 options(tibble.print_max = 50)
 knitr::opts_chunk$set(message=FALSE, warning=FALSE, error=FALSE)
+
+
+# function to save html tables as pngs
+save_kable_as_image <- function(kable_table, filename, zoom = 2, width = 1000) {
+  html_file <- tempfile(fileext = ".html")
+  save_kable(kable_table, file = html_file, self_contained = TRUE)
+  webshot2::webshot(html_file, file = filename, zoom = zoom, vwidth = width)
+}
 ```
 
 ```{r}
@@ -19,13 +23,14 @@ knitr::opts_chunk$set(message=FALSE, warning=FALSE, error=FALSE)
 # load packages
 library(tidyverse)
 library(pwr)
-library(lme4)
-library(simr)
+#library(lme4)
+#library(simr)
 library(kableExtra)
+library(flextable)
 ```
 
-```{r results='asis'}
-#| results: 'asis'
+```{r, message=FALSE, include=FALSE}
+
 source("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_projects/wetlands/ano_vatmark/power_analysis.R", local = TRUE)
 
 ```
@@ -36,139 +41,227 @@ Of the 252 ANO flate sites, 38 have under the total 18 point IDs.
 
 ```{r results='asis'}
 geo_ano_general |> 
-  arrange(resolution, analysis_type) |> 
-    kableExtra::kbl() |> #caption = paste("Summary for group:", paste(keys, collapse = " - "))
-    kableExtra::kable_styling(full_width = FALSE)
+  arrange(region, resolution, analysis_type) |> 
+    kableExtra::kbl() |> 
+    kableExtra::kable_styling(full_width = FALSE) |> 
+  kableExtra::kable_paper("hover")
+```
+
+```{r}
+
+fig <- geo_ano |> 
+  ggplot(aes(x = response_variable_values)) + 
+  geom_histogram() + 
+  facet_wrap(~response_variable_names, scales = "free_x") + 
+  theme_classic()
+
+print(fig)
+
+```
+
+## Power analysis results
+
+Below are illustrated the power analysis results. Each table describes the number of plots required to detect a 1, 5 or 10% change in each of the response variables, ~~with 60 or~~ 80% power. Analyses have been conducted at the 1:5000 and 1:20 000 resolution, and for the 1 x 1 m quadrat analyses as well as the 250 m\^2 circle. Analyses were conducted using the function `pwr.f2.test()` from the `pwr` package.
+
+Numbers are coloured according to their reliability, whereby black values are considered reliable, and grey values unreliable. The threshold for reliability was set according to the standard deviation of each response variable and the spread of the data for each response variable (see appendix figure X):
+
+
+```{r}
+geo_ano_results_national |> 
+  group_by(response_variable_names) |> 
+  summarise(mean_sd = mean(sd_dat),
+            min_sd = min(sd_dat),
+            max_sd = max(sd_dat)
+  ) |> 
+  kableExtra::kbl() |> 
+    kableExtra::kable_styling(full_width = FALSE) |> 
+  kableExtra::kable_paper("hover")
+  
+
+```
+
+The number of data points (i.e. the number of `ano_punkt_id`) per vegetation type and per response variable varies from 1 to more than 2300: 
+```{r}
+geo_ano_vat |> 
+  group_by(grouping, response_variable_names) |> 
+  summarise(n = n_distinct(ano_punkt_id)) |> 
+  pivot_wider(names_from = response_variable_names, values_from = n) |> 
+  kbl(escape = FALSE) |> 
+  kable_paper("hover") |> 
+      kable_styling(full_width = FALSE)
+
 
 ```
 
 
 
-## Power analysis results
-Below are illustrated the power analysis results. Each table describes the number of plots required to detect a 1, 5 or 10% change in each of the response variables, with 60 or 80% power. Analyses have been conducted at the 1:5000 and 1:20 000 resolution, and for the 1 x 1 m quadrat analyses as well as the 250 m\^2 circle. Analyses were conducted using the function `pwr.f2.test()` from the `pwr` package.
+Thus, values below the standard deviation threshold are considered unreliable.
 
+### National-level recommendations
 
-
-
-### Results for ungrouped 'kartleggingsenheter'
 ```{r results='asis'}
 
-# tables
-#geo_ano_results |> 
-#  filter(power == 0.8, delta_level == 10, resolution == 5000, analysis_type == "1m2") |> 
-#  select(kartleggingsenhet, resolution, analysis_type, response_variable_names, n_plots) |> 
-#  tidylog::left_join(geo_ano_general) |> 
-#  mutate(feasibility = ifelse(n_plots < n_points, "feasible", "not feasible"))
 
-
-
-# All vegetation types: Walk through each group and print a table
-geo_ano_results_groups <- geo_ano_results |> 
-  group_by(resolution, analysis_type, delta_level, power) |> 
+# split table into 1:5000 and 1:20 000 resolution tables.
+geo_ano_results_groups <- geo_ano_results_national |> 
+  filter(power == 0.8) |> 
+  group_by(resolution) |> 
   group_split() 
   
-geo_ano_results_labels <- geo_ano_results |> 
-  group_by(resolution, analysis_type, delta_level, power) |> 
-  group_keys() |> 
-  mutate(power = power*100)
+geo_ano_results_labels <- geo_ano_results_national |> 
+  group_by(resolution) |> 
+  group_keys()
+
+
+walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(dat, idx) {
+  keys <- geo_ano_results_labels[idx, ]
+  
+
+  
+  summary_tbl <- dat |> 
+    mutate(hovedtype = str_extract(grouping, "^[^-]+")) |> 
+    select(hovedtype, grouping, delta_level, response_variable_names, n_plots, n_obs, sd_dat, sd_threshold, obs_threshold) |>
+    filter(!is.na(n_plots)) |> 
+    mutate(
+      obs_scale = (n_obs/1029),
+      n_plots = if_else(
+      (sd_dat < sd_threshold) & obs_threshold < 0.15, 
+      cell_spec(n_plots, color = "grey60"),
+      cell_spec(n_plots, color = "black")
+    )) |> 
+    ungroup() |> 
+    select(-sd_dat, -sd_threshold, -n_obs, -obs_scale, -obs_threshold) |> 
+  pivot_wider(names_from = response_variable_names, values_from = n_plots) |> 
+    arrange(hovedtype, delta_level) |> 
+    select(-hovedtype)
+    
+
+  print(summary_tbl  |> 
+    kbl(escape = FALSE, caption = paste("1:", keys[1], "resolution")) |> 
+      kable_paper() |> 
+      add_header_above(c(" ", "1m^2 plot" = 6, "250m^2 circle" = 2), line_sep = 5) |> 
+      kable_styling(full_width = FALSE)
+
+      )
+})
+
+```
+
+
+```{r}
+geo_ano_results_national |> 
+  mutate(n_observations = paste0(n_obs, "/", total_obs)) |> 
+  distinct(grouping, resolution, response_variable_names, n_observations) |> 
+  pivot_wider(names_from = response_variable_names, values_from = n_observations) |> 
+  kbl(escape = FALSE) |> 
+  kable_paper() |> 
+      kable_styling(full_width = FALSE)
+
+```
+
+
+
+### Geopolitical regional-level recommendations
+
+```{r results='asis'}
+
+
+# split table into 1:5000 and 1:20 000 resolution tables.
+geo_ano_results_groups <- geo_ano_results_regional |> 
+  filter(power == 0.8) |> 
+  group_by(resolution) |> 
+  group_split() 
+  
+geo_ano_results_labels <- geo_ano_results_regional |> 
+  group_by(resolution) |> 
+  group_keys() #|> 
+  #mutate(power = power*100)
+
+
+walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(dat, idx) {
+  keys <- geo_ano_results_labels[idx, ]
+  
+
+  
+  summary_tbl <- dat |> 
+    mutate(hovedtype = str_extract(grouping, "^[^-]+")) |> 
+    select(region, hovedtype, grouping, delta_level, response_variable_names, n_plots, n_obs, sd_dat, sd_threshold) |>
+    filter(!is.na(n_plots)) |> 
+    mutate(
+      obs_scale = (n_obs/1029),
+      n_plots = if_else(
+      (sd_dat < sd_threshold) & (obs_scale < 0.15), 
+      cell_spec(n_plots, color = "grey60"),
+      cell_spec(n_plots, color = "black")
+    )) |> 
+    ungroup() |> 
+    select(-sd_dat, -sd_threshold, -n_obs, -obs_scale) |> 
+  pivot_wider(names_from = response_variable_names, values_from = n_plots) |> 
+    arrange(hovedtype, delta_level) |> 
+    select(-hovedtype)
+    
+
+  print(summary_tbl  |> 
+    kbl(escape = FALSE, caption = paste("1:", keys[1], "resolution")) |> #, ", keys[2], "plot type" , to detect a ", keys[3], "% change, with", keys[4], "% power."     #caption = paste("Summary for group:", paste(keys, collapse = " - "))
+      kable_paper() |> 
+      add_header_above(c(" " = 2, "1m^2 plot" = 6, "250m^2 circle" = 2), line_sep = 5) |> 
+      kable_styling(full_width = FALSE)
+
+      )
+})
+
+```
+
+
+### Bioclimatice regional-level recommendations
+
+```{r results='asis'}
+
+# split table into 1:5000 and 1:20 000 resolution tables.
+geo_ano_results_groups <- geo_ano_results_bioclimatic |> 
+  filter(power == 0.8) |> 
+  group_by(resolution) |> 
+  group_split() 
+  
+geo_ano_results_labels <- geo_ano_results_bioclimatic |> 
+  group_by(resolution) |> 
+  group_keys() #|> 
+  #mutate(power = power*100)
 
 #dat <- geo_ano_results_groups[[1]] |> as_tibble()
 
 walk2(geo_ano_results_groups, seq_len(nrow(geo_ano_results_labels)), function(dat, idx) {
   keys <- geo_ano_results_labels[idx, ]
   
-  cat("####", paste("1:", keys[1], "resolution, ", keys[2], "plot type, to detect a ", keys[3], "% change, with", keys[4], "% power."), "\n\n")
+
   
   summary_tbl <- dat |> 
-    select(kartleggingsenhet, response_variable_names, n_plots) |> 
-  pivot_wider(names_from = response_variable_names, values_from = n_plots) 
+    mutate(hovedtype = str_extract(grouping, "^[^-]+")) |> 
+    select(BCregion, hovedtype, grouping, delta_level, response_variable_names, n_plots, n_obs, sd_dat, sd_threshold) |>
+    filter(!is.na(n_plots)) |> 
+    mutate(
+      obs_scale = (n_obs/1029),
+      n_plots = if_else(
+      (sd_dat < sd_threshold) & (obs_scale < 0.15), 
+      cell_spec(n_plots, color = "grey60"),
+      cell_spec(n_plots, color = "black")
+    )) |> 
+    ungroup() |> 
+    select(-sd_dat, -sd_threshold, -n_obs, -obs_scale) |> 
+  pivot_wider(names_from = response_variable_names, values_from = n_plots) |> 
+    arrange(hovedtype, delta_level) |> 
+    select(-hovedtype)
     
 
   print(summary_tbl  |> 
-    kableExtra::kbl() |> #caption = paste("Summary for group:", paste(keys, collapse = " - "))
-    kableExtra::kable_styling(full_width = FALSE) |> 
-      kableExtra::kable_paper("hover")
-    #kableExtra::column_spec(2, background = kableExtra::spec_color(2, option = "viridis")) |> 
-    #kableExtra::kable_material_dark(c("striped", "hover"))
-  )
-  cat("\n\n")
+    kbl(escape = FALSE, caption = paste("1:", keys[1], "resolution")) |> #, ", keys[2], "plot type" , to detect a ", keys[3], "% change, with", keys[4], "% power."     #caption = paste("Summary for group:", paste(keys, collapse = " - "))
+      kable_paper() |> 
+      add_header_above(c(" " = 2, "1m^2 plot" = 6, "250m^2 circle" = 2), line_sep = 5) |> 
+      kable_styling(full_width = FALSE)
+
+      )
 })
 
 ```
 
 
-### Results for grouped 'kartleggingsenheter'
-Kartleggingsenheter are grouped into common and rare types.
-
-
-```{r results='asis'}
-
-# Agglomerated vegetation types: Walk through each group and print a table
-geo_ano_results_groups_agglo <- geo_ano_results_agglo |> 
-  group_by(resolution, analysis_type, delta_level, power) |> 
-  group_split() 
-  
-geo_ano_results_labels_agglo <- geo_ano_results_agglo |> 
-  group_by(resolution, analysis_type, delta_level, power) |> 
-  group_keys() |> 
-  mutate(power = power*100)
-
-
-walk2(geo_ano_results_groups_agglo, seq_len(nrow(geo_ano_results_labels_agglo)), function(data, idx) {
-  keys <- geo_ano_results_labels[idx, ]
-  
-  cat("####", paste("1:", keys[1], "resolution, ", keys[2], "plot type, to detect a ", keys[3], "% change, with", keys[4], "% power."), "\n\n")
-  
-  summary_tbl <- data |> 
-    select(kartleggingsenhet_agglo, response_variable_names, n_plots) |> 
-  pivot_wider(names_from = response_variable_names, values_from = n_plots) 
-    
-  
-  print(summary_tbl  |> 
-    kableExtra::kbl(caption = paste("Summary for group:", paste(keys, collapse = " - "))) |> 
-    kableExtra::kable_styling(full_width = FALSE)
-  )
-  cat("\n\n")
-})
-
-
-
-```
-
-
-
-### Figures
-Graphical representation of the number of plots necessary to detect a 1, 5, or 10% change in each of the response variables at a 1:5000 or 1:20 000 resolution at 60 or 80% power, for the 1m^2 quadrats or 250m^2 circles.
-```{r results='asis'}
-# figures
-
-
-# plotting function
-plot_ano_tile <- function(geo_ano_results_figures){
-  group_info <- geo_ano_results_figures |> 
-    select(resolution, analysis_type, power, delta_level) |> 
-    slice(1)
-  
-  group_label <- paste(
-    paste(names(group_info), as.character(group_info), sep = "="),
-    collapse = ", "
-  )
-  
-  ggplot(geo_ano_results_figures, aes(y = kartleggingsenhet,
-                                      x = response_variable_names,
-                                      fill = n_plots)) +
-    geom_tile() +
-    scale_fill_viridis_c() +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    labs(title = group_label)
-}
-
-geo_ano_results_figures |> 
-  group_by(resolution, analysis_type, power, delta_level) |> 
-  group_split() |> 
-  walk(~ {
-    if(nrow(.x) > 0) print(plot_ano_tile(.x))
-  })
-
-```
