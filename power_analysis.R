@@ -157,12 +157,12 @@ site_detectability <- site_veg_long  |>
 # filter out unused vegetation types and NAs
 geo_ano_vat <- tidylog::filter(geo_ano_agglo, hovedtype %in% c("V1", "V2", "V3", "V6", "V8", "V9")) |> 
   #filter out the duplicates (where all of the kartleggingsenheter are rare or common)
+  filter(!grepl("common", grouping)) |> 
   tidylog::filter(!grouping %in% c("V3-all", "V6-all", "V9-all"))
 
 
   
 geo_ano_general <- geo_ano_vat |> 
-  filter(!grepl("common", grouping)) |> 
   group_by(region, grouping) |>  
   mutate(n_sites = n_distinct(ano_flate_id), n_points = n_distinct(ano_punkt_id)) |> 
   group_by(region, grouping, ano_flate_id, n_sites, n_points) |> 
@@ -201,7 +201,7 @@ geo_ano_analysis <- geo_ano_vat |>
   group_by(BCregion, grouping, response_variable_names, total_obs) |> 
   mutate(sd_dat = sd(response_variable_values, na.rm = TRUE)) |> 
   group_by(grouping, response_variable_names, total_obs) |> 
-  tidylog::summarise(sd_dat_mean = mean(sd_dat),
+  tidylog::summarise(sd_dat_mean = mean(sd_dat, na.rm = TRUE),
                      n_obs = n_distinct(ano_punkt_id),
                      obs_threshold = n_obs/total_obs,
                      range_vals = max(response_variable_values, na.rm = TRUE) - min(response_variable_values, na.rm = TRUE),
